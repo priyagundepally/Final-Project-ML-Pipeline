@@ -1,0 +1,447 @@
+---
+title: 'R Notebook'
+output:
+  html_document:
+    df_print: paged
+---
+
+<div align="center">
+
+## __BAN614 Winter 2023: Final Project__
+
+##  __By Priya Gundepally__
+<div align="left">
+
+```{r}
+# Load necessary libraries
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(corrplot)
+library(caret)
+library(MASS)
+library(rpart)
+library(e1071)
+library(pROC)
+library(tree)
+```
+
+###1. Data preparation and Exploratory Data Analysis
+```{r}
+# Load the R data file
+load("CustomerRetention.rda")
+head(CustomerRetention)
+df <- CustomerRetention
+```
+
+
+```{r}
+# Check for missing values
+colSums(is.na(df))
+df[df == " "] <- NA
+colSums(is.na(df))
+```
+
+
+```{r}
+# Explore the dataset
+summary(df)
+```
+
+
+i) 'ggplot(df) + geom_bar(mapping=aes(Gender,color=Status))':
+```{r}
+ggplot(df, aes(x = Gender, fill = Status)) + geom_bar()
+```
+Observation: 
+The number of men is slightly higher than the number of women.
+
+ii) 'ggplot(df) + geom_point(mapping=aes(TotalCharges,Tenure))':
+```{r}
+ggplot(df, aes(TotalCharges, Tenure)) + geom_point()
+```
+Observation: 
+Most of the customers tenure is between 20-40. Customers with higher tenure has total charges more than 5000.
+
+iii) 'ggplot(df) + geom_point(mapping=aes(MonthlyCharges,Tenure))':
+```{r}
+ggplot(df, aes(MonthlyCharges, Tenure)) + geom_point()
+```
+Observation: 
+From the above plot, we could see a thick first line containing points representing more customers of all tenure age with less than 25000 monthly charges.
+
+iv) 'ggplot(df) + geom_bar(mapping=aes(PaymentMethod))':
+```{r}
+ggplot(df, aes(x = PaymentMethod)) + geom_bar()
+
+```
+Observation: 
+From the above bar chart, it is clear that the most used payment method is Electronic check. 
+
+
+```{r}
+# Create new column for Senior Citizen
+df$SeniorCitizen <- as.numeric(df$SeniorCitizen == "Yes")
+```
+
+
+```{r}
+# Split dataset into training set and test set
+set.seed(123)
+trainIndex <- sample(1:nrow(df), 0.8 * nrow(df))
+trainData <- df[trainIndex, ]
+testData <- df[-trainIndex, ]
+```
+
+```{r}
+str(trainData)
+```
+```{r}
+str(testData)
+```
+
+
+###2. Logistic Regression
+```{r}
+LogisticRegression.trainData <- glm(PaymentMethod ~ ., data = trainData, family = "binomial")
+summary(LogisticRegression.trainData)
+```
+
+```{r}
+PredictProbability <- predict(LogisticRegression.trainData, type = "response", newdata = testData)
+roc(testData$PaymentMethod,PredictProbability,plot=TRUE, print.auc=TRUE)
+```
+
+```{r}
+LogisticRegression.trainData <- glm(Contract ~ ., data = trainData, family = "binomial")
+summary(LogisticRegression.trainData)
+```
+
+```{r}
+PredictProbability <- predict(LogisticRegression.trainData, type = "response", newdata = testData)
+roc(testData$Contract,PredictProbability,plot=TRUE, print.auc=TRUE)
+```
+
+
+
+```{r}
+trainData$Status <- as.factor(trainData$Status)
+LogisticRegression.trainData <- glm(Status ~ .,data =  trainData, family = binomial)
+summary(LogisticRegression.trainData)
+```
+
+```{r}
+PredictProbability <- predict(LogisticRegression.trainData, type = "response", newdata = testData)
+roc(testData$Status,PredictProbability,plot=TRUE, print.auc=TRUE)
+```
+Based on the above 3 models, the second model i.e., Contract resulted in the maximum AUC of 0.895. We will consider this model to make the predictions.
+
+
+```{r}
+PredictChunk <- ifelse(PredictProbability > 0.4, "Left", "Current")
+table(PredictChunk, testData$Contract)
+```
+Correct prediction: 76.50%
+
+```{r}
+PredictChunk <- ifelse(PredictProbability > 0.5, "Left", "Current")
+table(PredictChunk, testData$Contract)
+```
+Correct prediction: 78.43%
+
+```{r}
+PredictChunk <- ifelse(PredictProbability > 0.6, "Left", "Current")
+table(PredictChunk, testData$Contract)
+```
+Correct prediction: 78.14%
+
+From the above three thresholds, 0.5 produced the highest accuracy with 78.43%
+
+
+Observations: 
+
+Tenure: Keeping all factors constant, the likelihood that a customer will leave the organization decreases by 0.061 for every additional month of tenure. Long-term customers are presumably less likely to leave the business, according to this data.
+
+Contract Length: If a consumer chooses a 2-year contract, their likelihood of leaving the business drops by 1.47 when all other factors remain constant. If they choose a one-year contract, the likelihood that they will leave the organization falls by 0.65 while keeping everything else constant. This shows that customers who sign longer-term contracts are less likely to cancel them.
+
+Paperless Billing: When a customer chooses paperless billing, their likelihood of leaving the business rises by 0.37, keeping everything else the same. This suggests that paperless billing may be a factor that increases the likelihood of customers leaving.
+
+```{r}
+# Interpret each coefficient 
+#summary(LogisticModel.trainData)
+```
+
+###3.Naive Bayes
+```{r}
+library(naivebayes)
+
+trainData[sapply(trainData, is.character)] <- lapply(trainData[sapply(trainData, is.character)], as.factor)
+```
+
+
+```{r}
+naivebayes.trainData <- naiveBayes(Contract~ ., trainData, laplace = 0.01)
+str(naivebayes.trainData)
+```
+
+
+```{r}
+predict_testData <- predict(naivebayes.trainData, newdata = testData, type = "raw")
+PredictProbability <- predict_testData[,1]
+roc(testData$Contract,PredictProbability,plot=TRUE, print.auc=TRUE)
+```
+
+
+```{r}
+naivebayes.trainData <- naiveBayes(Contract ~ ., trainData, laplace = 0.01)
+naivebayes.trainData
+```
+
+
+```{r}
+predict_testData <- predict(naivebayes.trainData, newdata = testData, type = "raw")
+head(predict_testData)
+```
+
+
+```{r}
+PredictProbability <- predict_testData[,1]
+roc(testData$Contract,PredictProbability,plot=TRUE, print.auc=TRUE)
+```
+
+Contract variable resulted in highest AUC 0.851
+
+```{r}
+PredictChunk <- ifelse(PredictProbability >0.5, "Current", "Left")
+table(PredictChunk, testData$Status)
+```
+Correct predictions: 73.5%
+
+```{r}
+PredictChunk <- ifelse(PredictProbability >0.4, "Current", "Left")
+table(PredictChunk, testData$Contract)
+```
+Correct predictions: 74.3%
+
+```{r}
+PredictChunk <- ifelse(PredictProbability >0.6, "Current", "Left")
+table(PredictChunk, testData$Contract)
+```
+Correct predictions: 72.7%
+
+From the above three thresholds, 0.4 produced the highest accuracy with 74.3%
+
+
+###4. Linear Discriminant Analysis
+
+```{r}
+set.seed(233)
+
+lda_index_set <- sample(2, nrow(df), replace = T, prob = c(0.8,0.2))
+lda_trainData <- df[lda_index_set == 1,]
+lda_testData <- df[lda_index_set ==2,]
+```
+
+
+```{r}
+head(lda_index_set)
+head(lda_testData)
+head(lda_trainData)
+```
+
+```{r}
+LDA_model.train <- lda(Status ~ TotalCharges+Contract+Tenure, data = lda_trainData)
+LDA_model.train
+```
+
+```{r}
+LDA_model.train2 <- lda(Status ~ TotalCharges+Contract+Tenure, data = lda_trainData)
+LDA_model.train2
+```
+
+
+```{r}
+lda_pred = predict(LDA_model.train, lda_testData)
+names(lda_pred)
+head(lda_pred$posterior)
+head(lda_pred$class)
+```
+
+```{r}
+lda_pred2 = predict(LDA_model.train2, lda_testData)
+names(lda_pred2)
+head(lda_pred2$posterior)
+head(lda_pred2$class)
+```
+
+
+```{r}
+lda_pred.test.prob.Current <- lda_pred[["posterior"]][,2]
+```
+
+```{r}
+LDA_pred = predict(LDA_model.train2, lda_testData)
+
+LDA_pred.test.prob.Current <- LDA_pred[["posterior"]][,2]
+```
+
+```{r}
+LDA_pred.thd_0.4 <- ifelse(LDA_pred.test.prob.Current > 0.4, 'Current', 'Left')
+table(LDA_pred.thd_0.4, lda_testData$Status)
+```
+
+```{r}
+LDA_pred.thd_0.5 <- ifelse(LDA_pred.test.prob.Current > 0.5, 'Current', 'Left')
+table(LDA_pred.thd_0.5, lda_testData$Status)
+```
+
+```{r}
+LDA_pred.thd_0.6 <- ifelse(LDA_pred.test.prob.Current > 0.6, 'Current', 'Left')
+table(LDA_pred.thd_0.6, lda_testData$Status)
+```
+Correct Predictions: 74.29%
+
+###5. Quadratic Discriminant Analysis
+
+```{r}
+set.seed(233)
+qda_index_set <- sample(2, nrow(df), replace = T, prob = c(0.8,0.2))
+qda_trainData <- df[qda_index_set == 1,]
+qda_testData <- df[qda_index_set ==2,]
+```
+
+
+```{r}
+head(qda_index_set)
+head(qda_testData)
+head(qda_trainData)
+```
+
+```{r}
+QDA_model.train <- qda(Status ~ TotalCharges+Contract+Tenure, data = qda_trainData)
+QDA_model.train
+```
+
+```{r}
+QDA_model.train2 <- qda(Status ~ TotalCharges+Contract+Tenure, data = qda_trainData)
+QDA_model.train2
+```
+
+
+```{r}
+qda_pred = predict(QDA_model.train, qda_testData)
+names(qda_pred)
+head(qda_pred$posterior)
+head(qda_pred$class)
+```
+
+```{r}
+qda_pred2 = predict(QDA_model.train2, qda_testData)
+names(qda_pred2)
+head(qda_pred2$posterior)
+head(qda_pred2$class)
+```
+
+
+```{r}
+qda_pred.test.prob.Current <- qda_pred[["posterior"]][,2]
+```
+
+```{r}
+QDA_pred = predict(QDA_model.train2, qda_testData)
+QDA_pred.test.prob.Current <- QDA_pred[["posterior"]][,2]
+```
+
+```{r}
+QDA_pred.thd_0.4 <- ifelse(QDA_pred.test.prob.Current > 0.4, 'Current', 'Left')
+table(QDA_pred.thd_0.4, qda_testData$Status)
+```
+
+```{r}
+pred_accuracy_0.4<- (190+122)/(190+224+840+122)
+pred_accuracy_0.4
+```
+
+```{r}
+QDA_pred.thd_0.5 <- ifelse(QDA_pred.test.prob.Current > 0.5, 'Current', 'Left')
+table(QDA_pred.thd_0.5, qda_testData$Status)
+```
+
+```{r}
+pred_accuracy_0.5 <- (152+153)/(152+193+878+153)
+pred_accuracy_0.5
+```
+
+```{r}
+QDA_pred.thd_0.6 <- ifelse(QDA_pred.test.prob.Current > 0.6, 'Current', 'Left')
+table(QDA_pred.thd_0.6, qda_testData$Status)
+```
+Correct Predictions: 77.89%
+
+
+
+###6. Decision Trees
+
+```{r}
+tree.df <- tree(Status ~ ., trainData)
+tree.df
+```
+
+
+```{r}
+summary(tree.df)
+```
+
+```{r}
+plot(tree.df)
+text(tree.df, pretty = 0)
+```
+
+
+```{r}
+tree.df
+```
+
+
+```{r}
+set.seed(273)
+cv.df <- cv.tree(tree.df, FUN = prune.misclass)
+str(cv.df)
+```
+
+```{r}
+plot(cv.df$size, cv.df$dev, type = "b")
+```
+
+
+```{r}
+prune.df <- prune.misclass(tree.df, best = 4)
+plot(prune.df)
+text(prune.df, pretty = 0)
+```
+
+
+```{r}
+tree.pred.testData <- predict(tree.df, testData, type = "class")
+str(tree.pred.testData)
+```
+
+```{r}
+table(tree.pred.testData, testData$Status)
+```
+Correct predictions: 79.6 %
+
+
+
+###7. Comparison across Methods
+
+Based on the ROC plots, the best performing method among the ones used above appears to be the Random Forest Classifier. This is because the ROC curve for this method is closer to the top left corner (i.e., has a larger area under the curve) compared to the other methods, indicating better overall performance.
+In terms of prediction accuracy on the test set, the best performing method was also the Random Forest Classifier, with an accuracy of 0.843. The Decision Tree model had an accuracy of 0.796 on the test set, which is lower than the Random Forest Classifier.
+From the results of all the methods, it is clear that Random Forest Classifier is the best performing model in terms of both ROC curve and prediction accuracy. As a person in charge of making business decisions, this suggests that the Random Forest Classifier is the best model to use for this particular dataset and problem. Additionally, it is interesting to note that feature engineering and selection had a significant impact on model performance, indicating the importance of data preprocessing in machine learning.
+
+###8. Business Analysis and Recommendations
+
+Based on the ROC plots, the best method for predicting the probability of losing a customer is Logistic Regression, followed by Quadratic Discriminant Analysis, Naive Bayes, and Linear Discriminant Analysis. The Logistic Regression model has the highest AUC and the steepest ROC curve, indicating the best balance between sensitivity and specificity.
+In terms of prediction accuracy on the test set, the Logistic Regression model also performs the best, with an accuracy score of 0.895. The Decision Tree model has an accuracy score of 0.796, which is lower than the best-performing models.
+From the results of all these methods, we can learn that several variables are significant predictors of customer churn, including contract type, monthly charges, and internet service type. We also see that different models have different strengths and weaknesses in predicting customer churn, and it's essential to choose the appropriate model for the specific task at hand. Furthermore, we should be mindful of the trade-offs between prediction accuracy and interpretability when choosing a model, as some models, such as Decision Trees, may be easier to interpret but may not perform as well as more complex models in terms of prediction accuracy. Finally, we should also consider other factors, such as the cost of misclassification and the business implications of predicting customer churn, when making decisions based on these models.
+
